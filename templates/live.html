@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Sports Facility Heatmap</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #1a1a1a;
+            color: white;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            border-bottom: 2px solid #00ff88;
+        }
+
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .live-dot {
+            width: 12px;
+            height: 12px;
+            background: #ff0000;
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .main-container {
+            display: flex;
+            height: 100vh;
+            padding-top: 70px;
+        }
+
+        .video-section {
+            flex: 0 0 30%;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        #live-video {
+            max-width: 95%;
+            max-height: 95%;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 255, 136, 0.3);
+        }
+
+        .heatmap-section {
+            flex: 0 0 60%;
+            background: rgba(0, 0, 0, 0.8);
+            border-left: 2px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stats-overlay {
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border-bottom: 1px solid #333;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+
+        .stat-value {
+            color: #00ff88;
+            font-weight: bold;
+        }
+
+        .heatmap-container {
+            position: relative;
+            flex: 1;
+            padding: 20px;
+        }
+
+        #facility-image {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            border-radius: 8px;
+        }
+
+        #heatmap-canvas {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            bottom: 20px;
+            pointer-events: none;
+            opacity: 0.8;
+            border-radius: 8px;
+        }
+
+        #detection-canvas {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            bottom: 20px;
+            pointer-events: none;
+            border-radius: 8px;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            border: 1px solid #444;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 0;
+        }
+
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 3px;
+        }
+
+        button {
+            background: linear-gradient(45deg, #00ff88, #00cc6a);
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: linear-gradient(45deg, #00cc6a, #009950);
+            transform: translateY(-1px);
+        }
+
+        .danger-btn {
+            background: linear-gradient(45deg, #ff4444, #cc0000);
+            color: white;
+        }
+
+        .auto-update-status {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid #00ff88;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        .error-status {
+            background: rgba(255, 68, 68, 0.1);
+            border: 1px solid #ff4444;
+            color: #ff4444;
+        }
+
+        .area-counts {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #333;
+        }
+
+        .area-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 8px;
+            margin: 2px 0;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        .area-count {
+            color: #ffaa00;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="live-indicator">
+            <div class="live-dot"></div>
+            <span>🎯 YOLO → HEATMAP AUTO-UPDATE</span>
+        </div>
+        <div>
+            <button onclick="toggleDetection()" id="toggle-btn">⏸️ Pause</button>
+            <button class="danger-btn" onclick="clearHeatmap()">🗑️ Clear</button>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <!-- Left side: Live YOLO video feed -->
+        <div class="video-section">
+            <img id="live-video" src="/live_feed" alt="Live YOLO Detection Feed">
+        </div>
+
+        <!-- Right side: Auto-updating heatmap -->
+        <div class="heatmap-section">
+            <!-- Statistics Panel -->
+            <div class="stats-overlay">
+                <h3>📊 Live YOLO → Heatmap</h3>
+                
+                <div class="auto-update-status" id="update-status">
+                    ✅ Auto-updating from YOLO detections
+                </div>
+                
+                <div class="stat-row">
+                    <span>People Detected:</span>
+                    <span class="stat-value" id="people-count">0</span>
+                </div>
+                
+                <div class="stat-row">
+                    <span>Heatmap Updated:</span>
+                    <span class="stat-value" id="last-update">--:--:--</span>
+                </div>
+
+                <div class="stat-row">
+                    <span>Coordinates Received:</span>
+                    <span class="stat-value" id="coordinates-count">0</span>
+                </div>
+
+                <!-- Area Distribution -->
+                <div class="area-counts">
+                    <h4>🏟️ Area Distribution</h4>
+                    <div id="area-list">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Auto-updating Heatmap Container -->
+            <div class="heatmap-container">
+                <img id="facility-image" src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwMCIgaGVpZ2h0PSI4MDAiIHZpZXdCb3g9IjAgMCAxMjAwIDgwMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPCEtLSBNYWluIGZhY2lsaXR5IGJhY2tncm91bmQgLS0+CjxyZWN0IHdpZHRoPSIxMjAwIiBoZWlnaHQ9IjgwMCIgZmlsbD0iIzJhMzY2NiIvPgoKPCEtLSBVcHBlciBsZXZlbCBjb3JyaWRvcnMgLS0+CjxyZWN0IHg9IjUwIiB5PSI1MCIgd2lkdGg9IjExMDAiIGhlaWdodD0iMTIwIiBmaWxsPSIjNGE1NTY4IiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMiIvPgo8cmVjdCB4PSI1MCIgeT0iNjMwIiB3aWR0aD0iMTEwMCIgaGVpZ2h0PSIxMjAiIGZpbGw9IiM0YTU1NjgiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxyZWN0IHg9IjUwIiB5PSI1MCIgd2lkdGg9IjEyMCIgaGVpZ2h0PSI3MDAiIGZpbGw9IiM0YTU1NjgiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyIi8+CjxyZWN0IHg9IjEwMzAiIHk9IjUwIiB3aWR0aD0iMTIwIiBoZWlnaHQ9IjcwMCIgZmlsbD0iIzRhNTU2OCIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiLz4KCjwhLS0gTWFpbiBjb3VydCBhcmVhIC0tPgo8cmVjdCB4PSIyMDAiIHk9IjIwMCIgd2lkdGg9IjgwMCIgaGVpZ2h0PSI0MDAiIGZpbGw9IiM5OTczNTQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIzIi8+Cgo8IS0tIEJhZG1pbnRvbiBjb3VydCBtYXJraW5ncyAtLT4KPHJlY3QgeD0iNDUwIiB5PSIyMDAiIHdpZHRoPSIzMDAiIGhlaWdodD0iNDAwIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMyIvPgo8bGluZSB4MT0iNjAwIiB5MT0iMjAwIiB4Mj0iNjAwIiB5Mj0iNjAwIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMiIvPgoKPCEtLSBTZWF0aW5nIGFyZWFzIC0tPgo8cmVjdCB4PSIyMDAiIHk9IjE3MCIgd2lkdGg9IjgwMCIgaGVpZ2h0PSIzMCIgZmlsbD0iIzAwNjZmZiIvPgo8cmVjdCB4PSIyMDAiIHk9IjYwMCIgd2lkdGg9IjgwMCIgaGVpZ2h0PSIzMCIgZmlsbD0iIzAwNjZmZiIvPgoKPCEtLSBUYWJsZSB0ZW5uaXMgYXJlYXMgLS0+CjxyZWN0IHg9IjIyMCIgeT0iNjUwIiB3aWR0aD0iMTAwIiBoZWlnaHQ9IjYwIiBmaWxsPSIjMDA5OWNjIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMSIvPgo8cmVjdCB4PSIzNDAiIHk9IjY1MCIgd2lkdGg9IjEwMCIgaGVpZ2h0PSI2MCIgZmlsbD0iIzAwOTljYyIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjEiLz4KPHJLY3QgeD0iNzYwIiB5PSI2NTAiIHdpZHRoPSIxMDAiIGhlaWdodD0iNjAiIGZpbGw9IiMwMDk5Y2MiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxIi8+Cjx0ZXh0IHg9IjYwMCIgeT0iNzUwIiBmaWxsPSIjZmZmIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMjBweCIgZm9udC13ZWlnaHQ9ImJvbGQiPlNQT1JUUyBGQUNJTElUWTwvdGV4dD4KPC9zdmc+" alt="Sports Facility Layout">
+                
+                <canvas id="heatmap-canvas"></canvas>
+                <canvas id="detection-canvas"></canvas>
+                
+                <div class="legend">
+                    <h4>🔥 Live Crowd Density</h4>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #0066ff;"></div>
+                        <span>Low</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #00ff00;"></div>
+                        <span>Medium</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ffff00;"></div>
+                        <span>High</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #ff0000;"></div>
+                        <span>Critical</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let heatmapCanvas, heatmapCtx, detectionCanvas, detectionCtx;
+        let facilityImage;
+        let currentDetections = [];
+        let animationFrame;
+        let updateInterval;
+
+        // Define court boundaries as percentages (relative to canvas)
+        const COURT_BOUNDARIES = {
+            // Main brown court area (from SVG: x="200" y="200" width="800" height="400")
+            // SVG total: 1200x800, so court is from 200-1000 x 200-600
+            minX: 200 / 1200,  // 0.167 (16.7%)
+            maxX: 1000 / 1200, // 0.833 (83.3%) 
+            minY: 200 / 800,   // 0.25 (25%)
+            maxY: 600 / 800    // 0.75 (75%)
+        };
+
+        function init() {
+            console.log('🚀 Initializing auto-update heatmap system...');
+            
+            facilityImage = document.getElementById('facility-image');
+            heatmapCanvas = document.getElementById('heatmap-canvas');
+            heatmapCtx = heatmapCanvas.getContext('2d');
+            detectionCanvas = document.getElementById('detection-canvas');
+            detectionCtx = detectionCanvas.getContext('2d');
+
+            facilityImage.onload = setupCanvas;
+            setupCanvas();
+
+            window.addEventListener('resize', setupCanvas);
+            
+            // Start auto-fetching YOLO coordinates every 1 second
+            startAutoUpdate();
+            animate();
+        }
+
+        function setupCanvas() {
+            const container = heatmapCanvas.parentElement;
+            const width = container.clientWidth - 40;
+            const height = container.clientHeight - 40;
+            
+            heatmapCanvas.width = width;
+            heatmapCanvas.height = height;
+            detectionCanvas.width = width;
+            detectionCanvas.height = height;
+            
+            redrawVisualization();
+        }
+
+        // Constrain coordinates to stay within court boundaries
+        function constrainToCourtBoundaries(detection) {
+            const constrainedDetection = { ...detection };
+            
+            // Clamp X coordinate to court boundaries
+            constrainedDetection.x = Math.max(COURT_BOUNDARIES.minX, 
+                                    Math.min(COURT_BOUNDARIES.maxX, detection.x));
+            
+            // Clamp Y coordinate to court boundaries  
+            constrainedDetection.y = Math.max(COURT_BOUNDARIES.minY,
+                                    Math.min(COURT_BOUNDARIES.maxY, detection.y));
+            
+            return constrainedDetection;
+        }
+
+        function startAutoUpdate() {
+            console.log('🔄 Starting auto-update from Flask API...');
+            
+            updateInterval = setInterval(() => {
+                console.log('📡 Fetching coordinates from /api/crowd_coordinates...');
+                
+                fetch('/api/crowd_coordinates')
+                    .then(response => {
+                        console.log('📥 Response received:', response.status);
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('📍 Data received:', data);
+                        
+                        // Constrain all detections to court boundaries
+                        const rawDetections = data.detections || [];
+                        currentDetections = rawDetections.map(constrainToCourtBoundaries);
+                        
+                        document.getElementById('people-count').textContent = data.total_count || 0;
+                        document.getElementById('coordinates-count').textContent = currentDetections.length;
+                        document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+                        
+                        const statusEl = document.getElementById('update-status');
+                        statusEl.textContent = `✅ Updated: ${currentDetections.length} people detected (court-constrained)`;
+                        statusEl.className = 'auto-update-status';
+                        
+                        updateAreaCounts(data.area_counts);
+                        redrawVisualization();
+                        
+                        console.log(`✅ Heatmap updated with ${currentDetections.length} court-constrained detections`);
+                    })
+                    .catch(error => {
+                        console.error('❌ Failed to fetch YOLO coordinates:', error);
+                        
+                        const statusEl = document.getElementById('update-status');
+                        statusEl.textContent = '❌ Connection error - check Flask server';
+                        statusEl.className = 'auto-update-status error-status';
+                    });
+            }, 1500);
+        }
+
+        function updateAreaCounts(areaCounts) {
+            if (!areaCounts) return;
+            
+            const areaList = document.getElementById('area-list');
+            areaList.innerHTML = '';
+            
+            // Create area items
+            Object.entries(areaCounts).forEach(([areaId, count]) => {
+                if (count > 0) {  // Only show areas with people
+                    const areaItem = document.createElement('div');
+                    areaItem.className = 'area-item';
+                    areaItem.innerHTML = `
+                        <span>${areaId.replace('_', ' ').toUpperCase()}:</span>
+                        <span class="area-count">${count}</span>
+                    `;
+                    areaList.appendChild(areaItem);
+                }
+            });
+        }
+
+        function redrawVisualization() {
+            drawHeatmap();
+            drawDetections();
+        }
+
+        function drawHeatmap() {
+            const width = heatmapCanvas.width;
+            const height = heatmapCanvas.height;
+
+            heatmapCtx.clearRect(0, 0, width, height);
+
+            if (currentDetections.length === 0) return;
+
+            // Draw heat spot for each detection
+            currentDetections.forEach(detection => {
+                const x = detection.x * width;
+                const y = detection.y * height;
+
+                const radius = 30; // control size of influence area
+                const gradient = heatmapCtx.createRadialGradient(x, y, 0, x, y, radius);
+                gradient.addColorStop(0, 'rgba(255, 0, 0, 0.4)');
+                gradient.addColorStop(0.4, 'rgba(255, 165, 0, 0.25)');
+                gradient.addColorStop(1, 'rgba(255, 255, 0, 0)');
+
+                heatmapCtx.fillStyle = gradient;
+                heatmapCtx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+            });
+
+            // Optional: Apply blur to smooth heatmap
+            const imageData = heatmapCtx.getImageData(0, 0, width, height);
+            heatmapCtx.filter = 'blur(10px)';
+            heatmapCtx.putImageData(imageData, 0, 0);
+            heatmapCtx.filter = 'none';
+        }
+
+        function getHeatColor(intensity) {
+            const alpha = Math.min(0.8, intensity * 1.5);
+            
+            if (intensity < 0.3) {
+                return `rgba(0, 102, 255, ${alpha})`;  // Blue - Low
+            } else if (intensity < 0.6) {
+                return `rgba(0, 255, 0, ${alpha})`;    // Green - Medium
+            } else if (intensity < 0.8) {
+                return `rgba(255, 255, 0, ${alpha})`;  // Yellow - High
+            } else {
+                return `rgba(255, 0, 0, ${alpha})`;    // Red - Critical
+            }
+        }
+
+        function drawDetections() {
+            const width = detectionCanvas.width;
+            const height = detectionCanvas.height;
+            
+            detectionCtx.clearRect(0, 0, width, height);
+            
+            currentDetections.forEach((detection, index) => {
+                const x = detection.x * width;
+                const y = detection.y * height;
+                
+                // Draw pulsing circle
+                const time = Date.now() / 1000;
+                const pulse = Math.sin(time * 2 + index) * 0.3 + 0.7;
+                
+                // Outer pulse
+                detectionCtx.beginPath();
+                detectionCtx.arc(x, y, 12 * pulse, 0, 2 * Math.PI);
+                detectionCtx.fillStyle = `rgba(255, 255, 255, ${pulse * 0.3})`;
+                detectionCtx.fill();
+                
+                // Inner dot
+                detectionCtx.beginPath();
+                detectionCtx.arc(x, y, 8, 0, 2 * Math.PI);
+                detectionCtx.fillStyle = '#ff0000';
+                detectionCtx.fill();
+                
+                // Add person number
+                detectionCtx.fillStyle = '#ffffff';
+                detectionCtx.font = '10px Arial';
+                detectionCtx.textAlign = 'center';
+                detectionCtx.fillText(`P${index + 1}`, x, y - 15);
+            });
+        }
+
+        function animate() {
+            drawDetections(); // Redraw for pulsing effect
+            animationFrame = requestAnimationFrame(animate);
+        }
+
+        function toggleDetection() {
+            fetch('/api/toggle_detection')
+                .then(response => response.json())
+                .then(data => {
+                    const btn = document.getElementById('toggle-btn');
+                    if (data.detection_active) {
+                        btn.textContent = '⏸️ Pause';
+                        startAutoUpdate();
+                    } else {
+                        btn.textContent = '▶️ Resume';
+                        if (updateInterval) {
+                            clearInterval(updateInterval);
+                        }
+                    }
+                    console.log('🔄 Detection toggled:', data.message);
+                });
+        }
+
+        function clearHeatmap() {
+            currentDetections = [];
+            redrawVisualization();
+            document.getElementById('people-count').textContent = '0';
+            document.getElementById('coordinates-count').textContent = '0';
+            document.getElementById('area-list').innerHTML = '';
+            console.log('🗑️ Heatmap cleared');
+        }
+
+        // Initialize when page loads
+        window.addEventListener('load', () => {
+            init();
+            console.log('🎯 YOLO → Heatmap system ready!');
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (updateInterval) clearInterval(updateInterval);
+            if (animationFrame) cancelAnimationFrame(animationFrame);
+        });
+    </script>
+</body>
+</html>
